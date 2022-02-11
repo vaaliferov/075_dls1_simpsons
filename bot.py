@@ -56,7 +56,7 @@ def handle_photo(update, context):
     labels, probs = predict('in.jpg', 3)
     e = enumerate(zip(labels, probs))
     a = [f'{i+1}. {c}: {p:.8f}' for i, (c, p) in e]
-    context.bot.send_message('\n'.join(a))
+    context.bot.send_message(chat_id, '\n'.join(a))
 
     if user['id'] != TG_BOT_OWNER_ID:
         with open('in.jpg', 'rb') as fd:
