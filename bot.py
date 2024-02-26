@@ -1,75 +1,50 @@
-import telegram
-import onnxruntime
-import numpy as np
-import telegram.ext
-from PIL import Image
-from PIL import ImageOps
-from secret import *
+from model import Model
+import os, argparse, asyncio
 
-USAGE_TEXT = (
-    "Send me some pictures of Simpsons. "
-    "I'll try and guess their names :) "
-    "You can use inline bots like @bing and @pic.")
+from telegram import Update
+from telegram.ext import filters, Application
+from telegram.ext import CommandHandler, MessageHandler
 
-def pad(im):
-    w, h = im.size; m = np.max([w, h])
-    hp, hpr = (m - w) // 2, (m - w) % 2
-    vp, vpr = (m - h) // 2, (m - h) % 2
-    return (hp + hpr, vp + vpr, hp, vp)
+parser = argparse.ArgumentParser()
+parser.add_argument('id', type=int, help='bot owner id')
+parser.add_argument('token', type=str, help='bot token')
 
-def norm(x):
-    mean = np.array([0.485,0.456,0.406])
-    std = np.array([0.229,0.224,0.225])
-    return (x - mean) / std
+args = parser.parse_args()
+model = Model('model.onnx', 'labels.txt')
 
-def softmax(x):
-    return np.exp(x) / np.sum(np.exp(x), axis=0)
+async def handle_text(update, context):
 
-def load_labels(path):
-    return np.array(open(path).read().splitlines())
+    usage_text = (
+        "Send me some pictures of Simpsons. "
+        "I'll try and guess their names :) "
+        "You can use inline bots like @bing and @pic.")
 
-def load_model(path):
-    return onnxruntime.InferenceSession(path)
+    await update.message.reply_text(usage_text)
 
-def predict(path, n):
-    sz = (224,224)
-    im = Image.open(path)
-    im.thumbnail(sz, Image.ANTIALIAS)
-    im = ImageOps.expand(im, pad(im))
-    x = np.array(im) / 255.
-    x = np.float32(norm(x))
-    x = x.transpose(2,0,1)
-    x = x.reshape((1,) + x.shape)
-    y = model.run(None, {'x': x})
-    probs = softmax(y[0][0])
-    idx = np.argsort(-probs)[:n]
-    return labels[idx], probs[idx]
+async def handle_photo(update, context):
 
-def handle_text(update, context):
-    update.message.reply_text(USAGE_TEXT)
+    loop = asyncio.get_running_loop()
 
-def handle_photo(update, context):
     user = update.message.from_user
+    photo = update.message.photo[-1]
     chat_id = update.message.chat_id
-    file_id = update.message.photo[-1]['file_id']
-    context.bot.getFile(file_id).download('in.jpg')
-    labels, probs = predict('in.jpg', 3)
-    e = enumerate(zip(labels, probs))
-    a = [f'{i+1}. {c}: {p:.8f}' for i, (c, p) in e]
-    context.bot.send_message(chat_id, '\n'.join(a))
 
-    if user['id'] != TG_BOT_OWNER_ID:
-        with open('in.jpg', 'rb') as fd:
+    file = await context.bot.get_file(photo)
+    path = photo['file_unique_id'] + '.jpg'
+    await file.download_to_drive(path)
+
+    labels, probs = await loop.run_in_executor(None, model.predict, path)
+    msg = '\n'.join([f'{c}: {p:.8f}' for c, p in zip(labels, probs)])
+    await context.bot.send_message(chat_id, msg)
+
+    if user['id'] != args.id:
+        with open(path, 'rb') as fd:
             msg = f"@{user['username']} {user['id']}"
-            context.bot.send_photo(TG_BOT_OWNER_ID, fd, msg)
+            await context.bot.send_photo(args.id, fd, msg)
 
-model = load_model('model.onnx')
-labels = load_labels('labels.txt')
+    os.remove(path)
 
-ft = telegram.ext.Filters.text
-fp = telegram.ext.Filters.photo
-h = telegram.ext.MessageHandler
-u = telegram.ext.Updater(TG_BOT_TOKEN)
-u.dispatcher.add_handler(h(ft, handle_text))
-u.dispatcher.add_handler(h(fp, handle_photo))
-u.start_polling(); u.idle()
+app = Application.builder().token(args.token).build()
+app.add_handler(MessageHandler(filters.TEXT, handle_text))
+app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+app.run_polling(allowed_updates=Update.ALL_TYPES)
