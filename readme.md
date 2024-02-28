@@ -1,4 +1,4 @@
-### DLS1_SIMPSONS [:link:](https://stepik.org/course/101721/syllabus)
+### Simpson Character Classifier [:link:](https://stepik.org/course/101721/syllabus)
 
 * model: [EfficientNet](https://github.com/lukemelas/EfficientNet-PyTorch) trained on [journey-springfield](https://www.kaggle.com/c/journey-springfield/data)
 * runtime: [Open Neural Network Exchange (ONNX)](https://github.com/onnx/onnx)
